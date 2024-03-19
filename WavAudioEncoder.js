@@ -1,3 +1,4 @@
+// https://github.com/higuma/wav-audio-encoder-js
 class WavAudioEncoder {
   constructor({ sampleRate, numberOfChannels }) {
     let controller;
@@ -16,17 +17,30 @@ class WavAudioEncoder {
     });
   }
   write(buffer) {
-    const floats = new Float32Array(buffer);
     let channels;
-    // Deinterleave
-    if (this.numberOfChannels > 1) {
-      channels = [[], []];
-      for (let i = 0, j = 0, n = 1; i < floats.length; i++) {
-        channels[(n = ++n % 2)][!n ? j++ : j - 1] = floats[i];
+    // ArrayBuffer, f32-planar from WebCodecs AudioData
+    if (buffer instanceof ArrayBuffer) {
+      const floats = new Float32Array(buffer);
+
+      // Deinterleave
+      if (this.numberOfChannels > 1) {
+        channels = [[], []];
+        for (let i = 0, j = 0, n = 1; i < floats.length; i++) {
+          channels[(n = ++n % 2)][!n ? j++ : j - 1] = floats[i];
+        }
+        channels = channels.map((f) => new Float32Array(f));
+      } else {
+        channels = [floats];
       }
-      channels = channels.map((f) => new Float32Array(f));
-    } else {
-      channels = [floats];
+    }
+    // Web Audio API AudioBuffer
+    if (buffer instanceof AudioBuffer) {
+      channels = Array.from(
+        {
+          length: buffer.numberOfChannels,
+        },
+        (_, i) => buffer.getChannelData(i)
+      );
     }
     const [{ length }] = channels;
     const ab = new ArrayBuffer(length * this.numberOfChannels * 2);
@@ -83,3 +97,4 @@ class WavAudioEncoder {
     );
   }
 }
+export { WavAudioEncoder };
