@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
-
+const { exec } = require('child_process');
 // Function to create the main window
 function createWindow() {
   const win = new BrowserWindow({
@@ -47,6 +47,13 @@ ipcMain.on('save-audio', async (event, buffer) => {
               event.reply('save-audio-response', { success: true, filename: filePath });
           }
       });
+      runPythonFunction('transcribe', (err, result) => {
+        if (err) {
+            console.error('Error running Python function:', err);
+        } else {
+            console.log('Result from Python:', result);
+        }
+    });
   } catch (error) {
       console.error('Error:', error);
       event.reply('save-audio-response', { success: false, error: error.message });
@@ -54,88 +61,19 @@ ipcMain.on('save-audio', async (event, buffer) => {
 });
 
 
-class WavAudioEncoder {
-  constructor({ sampleRate, numberOfChannels }) {
-    let controller;
-    let readable = new ReadableStream({
-      start(c) {
-        return (controller = c);
-      },
-    });
-    Object.assign(this, {
-      sampleRate,
-      numberOfChannels,
-      numberOfSamples: 0,
-      dataViews: [],
-      controller,
-      readable,
-    });
-  }
-  write(buffer) {
-    const floats = new Float32Array(buffer);
-    let channels;
-    // Deinterleave
-    if (this.numberOfChannels > 1) {
-      channels = [[], []];
-      for (let i = 0, j = 0, n = 1; i < floats.length; i++) {
-        channels[(n = ++n % 2)][!n ? j++ : j - 1] = floats[i];
+
+function runPythonFunction(functionName, callback) {
+  exec(`python check.py ${functionName}`, (error, stdout, stderr) => {
+      if (error) {
+          console.error(`exec error: ${error}`);
+          callback(error, null);
+          return;
       }
-      channels = channels.map((f) => new Float32Array(f));
-    } else {
-      channels = [floats];
-    }
-    const [{ length }] = channels;
-    const ab = new ArrayBuffer(length * this.numberOfChannels * 2);
-    const data = new DataView(ab);
-    let offset = 0;
-    for (let i = 0; i < length; i++) {
-      for (let ch = 0; ch < this.numberOfChannels; ch++) {
-        let x = channels[ch][i] * 0x7fff;
-        data.setInt16(
-          offset,
-          x < 0 ? Math.max(x, -0x8000) : Math.min(x, 0x7fff),
-          true
-        );
-        offset += 2;
+      if (stderr) {
+          console.error(`stderr: ${stderr}`);
+          callback(stderr, null);
+          return;
       }
-    }
-    this.controller.enqueue(new Uint8Array(ab));
-    this.numberOfSamples += length;
-  }
-  setString(view, offset, str) {
-    const len = str.length;
-    for (let i = 0; i < len; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  }
-  async encode() {
-    const dataSize = this.numberOfChannels * this.numberOfSamples * 2;
-    const buffer = new ArrayBuffer(44);
-    const view = new DataView(buffer);
-    this.setString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + dataSize, true);
-    this.setString(view, 8, 'WAVE');
-    this.setString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, this.numberOfChannels, true);
-    view.setUint32(24, this.sampleRate, true);
-    view.setUint32(28, this.sampleRate * 4, true);
-    view.setUint16(32, this.numberOfChannels * 2, true);
-    view.setUint16(34, 16, true);
-    this.setString(view, 36, 'data');
-    view.setUint32(40, dataSize, true);
-    this.controller.close();
-    return new Blob(
-      [
-        buffer,
-        await new Response(this.readable, {
-          cache: 'no-store',
-        }).arrayBuffer(),
-      ],
-      {
-        type: 'audio/wav',
-      }
-    );
-  }
+      callback(null, stdout.trim());
+  });
 }

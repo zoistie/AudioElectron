@@ -33,7 +33,7 @@ const startRecording = async () => {
         const audioUrl = URL.createObjectURL(data);
         const audioElement = document.getElementById('audioElement');
         audioElement.src = audioUrl;
-        // window.sendAudioToMain.send(await data.arrayBuffer());
+        window.sendAudioToMain.send(await data.arrayBuffer());
       })
       .catch((error) => {
         console.error('Error converting Blob to buffer:', error);
